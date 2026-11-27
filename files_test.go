@@ -3,6 +3,7 @@ package tgctl
 import (
 	"bytes"
 	"errors"
+	"math"
 	"testing"
 )
 
@@ -15,6 +16,7 @@ func TestDownloadCopiesTheFileWithinTheLimit(t *testing.T) {
 	}{
 		{"exactly at the limit", int64(len(content)), nil},
 		{"one byte over the limit", int64(len(content)) - 1, ErrFileTooLarge},
+		{"the largest limit a file can reach", math.MaxInt64, nil},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -31,6 +33,20 @@ func TestDownloadCopiesTheFileWithinTheLimit(t *testing.T) {
 				t.Errorf("dst = %q, want %q", dst.String(), content)
 			}
 		})
+	}
+}
+
+func TestDownloadRefusesANonPositiveLimitBeforeAnyRequest(t *testing.T) {
+	bot := newFakeBot(t, okReply(`true`))
+	bot.files["documents/a.txt"] = "0123456789"
+
+	for _, limit := range []int64{0, -1, math.MinInt64} {
+		if err := bot.client().Download(t.Context(), "documents/a.txt", limit, &bytes.Buffer{}); !errors.Is(err, ErrBadLimit) {
+			t.Errorf("Download with limit %d = %v, want ErrBadLimit", limit, err)
+		}
+	}
+	if n := len(bot.recorded()); n != 0 {
+		t.Errorf("%d requests sent for a refused limit, want none", n)
 	}
 }
 

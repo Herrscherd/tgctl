@@ -52,8 +52,10 @@ func WithBaseURL(baseURL string) ClientOption {
 }
 
 // WithHTTPClient replaces the default HTTP client. The default times out after
-// 70 s, which covers the default 50 s poll of [Client.GetUpdates]; a
-// replacement must allow at least as long for the polls it carries.
+// 70 s and refuses redirects, since the token travels in the URL path: a 3xx
+// answer is returned as the reply. The longest poll of [Client.GetUpdates] is
+// 50 s, so a replacement must allow at least that much for the polls it
+// carries, and should refuse redirects too.
 func WithHTTPClient(httpClient *http.Client) ClientOption {
 	return func(cfg *clientConfig) { cfg.httpClient = httpClient }
 }
@@ -67,7 +69,11 @@ func New(token string, opts ...ClientOption) *Client {
 		apply(&cfg)
 	}
 	if cfg.httpClient == nil {
-		cfg.httpClient = &http.Client{Timeout: defaultPoll + requestSlack}
+		cfg.httpClient = &http.Client{Timeout: defaultPoll + requestSlack, CheckRedirect: refuseRedirects}
 	}
 	return &Client{api: newTransport(cfg.baseURL, token, cfg.httpClient)}
+}
+
+func refuseRedirects(*http.Request, []*http.Request) error {
+	return http.ErrUseLastResponse
 }

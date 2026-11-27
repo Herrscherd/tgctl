@@ -47,6 +47,7 @@ func (f *fakeBot) recorded() []recordedRequest {
 
 func (f *fakeBot) serve(writer http.ResponseWriter, request *http.Request) {
 	if path, ok := strings.CutPrefix(request.URL.Path, "/file/bot"+testToken+"/"); ok {
+		f.record(request.URL.Path, "")
 		f.serveFile(writer, path)
 		return
 	}
@@ -59,14 +60,18 @@ func (f *fakeBot) serve(writer http.ResponseWriter, request *http.Request) {
 	if err != nil {
 		f.t.Errorf("read the request: %v", err)
 	}
-	f.mu.Lock()
-	f.requests = append(f.requests, recordedRequest{path: request.URL.Path, body: string(body)})
-	f.mu.Unlock()
+	f.record(request.URL.Path, string(body))
 	status, answer := f.reply(method, string(body))
 	writer.WriteHeader(status)
 	if _, err := io.WriteString(writer, answer); err != nil {
 		f.t.Errorf("write the reply: %v", err)
 	}
+}
+
+func (f *fakeBot) record(path, body string) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.requests = append(f.requests, recordedRequest{path: path, body: body})
 }
 
 func (f *fakeBot) serveFile(writer http.ResponseWriter, path string) {

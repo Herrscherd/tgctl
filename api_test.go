@@ -260,15 +260,91 @@ func TestUnreachableTelegramMatchesErrTransport(t *testing.T) {
 	}
 }
 
-func TestCancelledCallMatchesBothTransportAndContext(t *testing.T) {
-	bot := newFakeBot(t, okReply(`{}`))
-	ctx, cancel := context.WithCancel(t.Context())
-	cancel()
+func TestEndedContextMatchesBothTransportAndContext(t *testing.T) {
+	cases := []struct {
+		name    string
+		ctx     func(t *testing.T) context.Context
+		wantErr error
+	}{
+		{
+			name: "cancelled",
+			ctx: func(t *testing.T) context.Context {
+				t.Helper()
+				ctx, cancel := context.WithCancel(t.Context())
+				cancel()
+				return ctx
+			},
+			wantErr: context.Canceled,
+		},
+		{
+			name: "past its deadline",
+			ctx: func(t *testing.T) context.Context {
+				t.Helper()
+				ctx, cancel := context.WithDeadline(t.Context(), time.Now().Add(-time.Second))
+				t.Cleanup(cancel)
+				return ctx
+			},
+			wantErr: context.DeadlineExceeded,
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			bot := newFakeBot(t, okReply(`{}`))
 
-	_, err := bot.client().GetMe(ctx)
+			_, err := bot.client().GetMe(tc.ctx(t))
 
-	if !errors.Is(err, ErrTransport) || !errors.Is(err, context.Canceled) {
-		t.Fatalf("err = %v, want ErrTransport and context.Canceled", err)
+			if !errors.Is(err, ErrTransport) || !errors.Is(err, tc.wantErr) {
+				t.Fatalf("err = %v, want ErrTransport and %v", err, tc.wantErr)
+			}
+		})
+	}
+}
+
+func TestBadRequestWithAnotherDescriptionIsNotNotModified(t *testing.T) {
+	bot := newFakeBot(t, refusal(http.StatusBadRequest, "Bad Request: chat not found"))
+
+	err := bot.client().EditMessageText(t.Context(), EditMessageText{ChatID: 1, MessageID: 2, Text: "text"})
+
+	failure, ok := errors.AsType[*APIError](err)
+	if !ok || failure.Code != http.StatusBadRequest {
+		t.Fatalf("err = %v, want a 400 APIError", err)
+	}
+	if errors.Is(err, ErrNotModified) {
+		t.Errorf("a 400 without the unchanged text must not match ErrNotModified: %v", err)
+	}
+}
+
+func TestRetryAfterStaysSilentWithoutAFloodDelay(t *testing.T) {
+	bot := newFakeBot(t, refusal(http.StatusTooManyRequests, "Too Many Requests"))
+	_, floodErr := bot.client().SendMessage(t.Context(), OutgoingMessage{ChatID: 1, Text: "hi"})
+
+	cases := []struct {
+		name string
+		err  error
+	}{
+		{"no error", nil},
+		{"a transport failure", ErrTransport},
+		{"a flood refusal without retry_after", floodErr},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			wait, limited := RetryAfter(tc.err)
+
+			if limited || wait != 0 {
+				t.Errorf("RetryAfter = %v, %v, want 0, false", wait, limited)
+			}
+		})
+	}
+}
+
+func TestRepliesLongerThanTheCapMatchErrBadResponse(t *testing.T) {
+	padding := strings.Repeat("a", responseMaxBytes)
+	bot := newFakeBot(t, okReply(`{"id":1,"is_bot":true,"first_name":"`+padding+`"}`))
+
+	_, err := bot.client().GetMe(t.Context())
+
+	if !errors.Is(err, ErrBadResponse) {
+		t.Fatalf("err = %v, want ErrBadResponse", err)
 	}
 }
 

@@ -40,7 +40,7 @@ for {
 | Method | Bot API call |
 |---|---|
 | `GetMe(ctx)` | `getMe` |
-| `GetUpdates(ctx, offset, timeout...)` | `getUpdates`, long poll (50 s by default) |
+| `GetUpdates(ctx, offset, timeout...)` | `getUpdates`, long poll (50 s by default, at most 50 s) |
 | `SendMessage(ctx, OutgoingMessage)` | `sendMessage` |
 | `EditMessageText(ctx, EditMessageText)` | `editMessageText` |
 | `EditMessageReplyMarkup(ctx, EditMessageReplyMarkup)` | `editMessageReplyMarkup` |
@@ -62,13 +62,19 @@ Nothing is read from the environment. Pass the token explicitly.
 
 - `WithBaseURL(url)` points the client at another Bot API root, such as a local
   Bot API server or a test server. The default is `https://api.telegram.org`.
-- `WithHTTPClient(client)` replaces the default client, which times out after
-  70 s. That covers the default 50 s poll; a replacement must allow at least as
-  long for the polls it carries.
+- `WithHTTPClient(client)` replaces the default client. The default times out
+  after 70 s, which covers the longest poll of 50 s, and refuses redirects: the
+  token travels in the URL path, so a 3xx answer is returned as the reply, as
+  `ErrBadResponse` for a method call or `ErrFileStatus` for a download. A
+  replacement must allow at least 50 s for the polls it carries, and should
+  refuse redirects too.
 
 `GetUpdates` takes an optional timeout as its last argument; only the first one
 is read. Telegram answers a poll as soon as an update arrives, or when the
-timeout ends.
+timeout ends. The Bot API counts whole seconds: a positive timeout is rounded up
+to the next second, and a timeout that is negative or over 50 s fails with
+`ErrBadTimeout` before any request is sent. `Download` likewise refuses a limit
+that is not positive with `ErrBadLimit`.
 
 ## Errors
 
@@ -81,12 +87,14 @@ Context is added with `%w`. Transport errors have the token replaced with
 | `*APIError` | Telegram refused the call. It carries `Method`, `Code`, `Description` and `RetryAfter` |
 | `ErrConflict` | an `APIError` with status 409: another caller polls the bot, or a webhook is set |
 | `ErrNotModified` | an `APIError` for an edit that leaves the message unchanged |
-| `ErrTransport` | Telegram cannot be reached or the connection breaks; a cancelled context also matches `context.Canceled` |
-| `ErrBadResponse` | the reply is not the expected JSON |
+| `ErrTransport` | Telegram cannot be reached or the connection breaks; a context that ends during the call also matches `context.Canceled` when it was cancelled, and `context.DeadlineExceeded` when it passed its deadline |
+| `ErrBadResponse` | the reply is not the expected JSON, is longer than 8 MiB, or is a redirect the default client refused to follow |
 | `ErrRequest` | the request cannot be built from the configuration |
+| `ErrBadTimeout` | `GetUpdates` is given a timeout that is negative or over 50 s |
+| `ErrBadLimit` | `Download` is given a limit that is not positive |
 | `ErrBadFilePath` | `Download` refuses a path that is empty, absolute, not clean, or holds `?`, `#` or `\` |
 | `ErrFileTooLarge` | `Download` reads more than `limit` bytes |
-| `ErrFileStatus` | the file server answers with a status other than 200 |
+| `ErrFileStatus` | the file server answers with a status other than 200, a redirect included |
 
 `RetryAfter(err)` returns the delay a flood refusal (429) asks for, and whether
 `err` holds one.

@@ -35,7 +35,7 @@ var ErrNotModified = errors.New("telegram message is not modified")
 // ErrBadFilePath is returned by [Client.Download] for a path that is empty, is
 // absolute, holds a query or fragment marker, a backslash, an empty segment, or
 // a dot segment, before any request is sent.
-var ErrBadFilePath = errors.New("telegram file path is not a relative path")
+var ErrBadFilePath = errors.New("telegram gave a file path that is not a relative path")
 
 // ErrFileTooLarge is returned by [Client.Download] when the file holds more
 // bytes than the limit. The bytes up to the limit have already been written to
@@ -45,6 +45,14 @@ var ErrFileTooLarge = errors.New("file is bigger than the cap")
 // ErrFileStatus is returned by [Client.Download] when the file server answers
 // with a status other than 200.
 var ErrFileStatus = errors.New("telegram refused the file download")
+
+// ErrBadLimit is returned by [Client.Download] when limit is not a positive
+// number of bytes, before any request is sent.
+var ErrBadLimit = errors.New("telegram download limit must be a positive byte count")
+
+// ErrBadTimeout is returned by [Client.GetUpdates] when the poll timeout is
+// negative or longer than 50 s, before any request is sent.
+var ErrBadTimeout = errors.New("telegram poll timeout must be between 0 and 50 seconds")
 
 // APIError is a refusal the Bot API returns in its JSON envelope with ok set to
 // false. Code is the error_code of the reply and Description its text. RetryAfter

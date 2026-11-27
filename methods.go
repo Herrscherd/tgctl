@@ -2,6 +2,8 @@ package tgctl
 
 import (
 	"context"
+	"fmt"
+	"math"
 	"time"
 )
 
@@ -37,26 +39,37 @@ func (c *Client) GetMe(ctx context.Context) (User, error) {
 // GetUpdates long polls Telegram for the updates after offset. Pass the last
 // update id plus one as the next offset, so an update is not delivered twice.
 // The call waits up to timeout for an update to arrive, 50 s when none is
-// given; a zero timeout returns at once. Only the first timeout is read. Only
-// one caller may poll a bot at a time: a second one, or a webhook, fails with
-// [ErrConflict]. The loop that calls it belongs to the caller.
+// given; a zero timeout returns at once. The Bot API counts whole seconds, so a
+// positive timeout is rounded up to the next second. A negative timeout, or one
+// longer than 50 s, returns [ErrBadTimeout] before any request is sent. Only the
+// first timeout is read. Only one caller may poll a bot at a time: a second
+// one, or a webhook, fails with [ErrConflict]. The loop that calls it belongs
+// to the caller.
 func (c *Client) GetUpdates(ctx context.Context, offset int64, timeout ...time.Duration) ([]Update, error) {
+	seconds, err := pollSeconds(timeout)
+	if err != nil {
+		return nil, fmt.Errorf("telegram getUpdates: %w", err)
+	}
 	var updates []Update
 	request := updatesRequest{
 		Offset:         offset,
 		Limit:          updatesPerPoll,
-		Timeout:        pollSeconds(timeout),
+		Timeout:        seconds,
 		AllowedUpdates: []string{"message", "callback_query", "stopped_message_generation"},
 	}
-	err := c.api.call(ctx, "getUpdates", request, &updates)
+	err = c.api.call(ctx, "getUpdates", request, &updates)
 	return updates, err
 }
 
-func pollSeconds(timeout []time.Duration) int {
+func pollSeconds(timeout []time.Duration) (int, error) {
 	if len(timeout) == 0 {
-		return int(defaultPoll / time.Second)
+		return int(defaultPoll / time.Second), nil
 	}
-	return max(int(timeout[0]/time.Second), 0)
+	window := timeout[0]
+	if window < 0 || window > defaultPoll {
+		return 0, ErrBadTimeout
+	}
+	return int(math.Ceil(window.Seconds())), nil
 }
 
 // SendMessage sends a message and returns it as Telegram stored it.

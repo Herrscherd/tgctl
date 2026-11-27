@@ -5,20 +5,25 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"math"
 	"net/http"
 	"strings"
 )
 
 // Download copies the file at filePath, a path from [Client.GetFile], into dst.
 // At most limit bytes are accepted: a file that holds more returns
-// [ErrFileTooLarge], and the bytes read before that point stay in dst. A path
-// that is not relative returns [ErrBadFilePath] before any request is sent, and
-// a server answer other than 200 returns [ErrFileStatus].
+// [ErrFileTooLarge], and the bytes read before that point stay in dst. A limit
+// that is not positive returns [ErrBadLimit], and a path that is not relative
+// returns [ErrBadFilePath]; both before any request is sent. A server answer
+// other than 200, a redirect included, returns [ErrFileStatus].
 func (c *Client) Download(ctx context.Context, filePath string, limit int64, dst io.Writer) error {
 	return c.api.download(ctx, filePath, limit, dst)
 }
 
 func (t *transport) download(ctx context.Context, filePath string, limit int64, dst io.Writer) error {
+	if limit <= 0 {
+		return ErrBadLimit
+	}
 	if !relativeFilePath(filePath) {
 		return ErrBadFilePath
 	}
@@ -38,7 +43,7 @@ func (t *transport) copyCapped(resp *http.Response, limit int64, dst io.Writer) 
 	if resp.StatusCode != http.StatusOK {
 		return fmt.Errorf("%w: http %d", ErrFileStatus, resp.StatusCode)
 	}
-	written, err := io.Copy(dst, io.LimitReader(resp.Body, limit+1))
+	written, err := io.Copy(dst, io.LimitReader(resp.Body, readBound(limit)))
 	if err != nil {
 		return t.transportFailure(err)
 	}
@@ -46,6 +51,10 @@ func (t *transport) copyCapped(resp *http.Response, limit int64, dst io.Writer) 
 		return ErrFileTooLarge
 	}
 	return nil
+}
+
+func readBound(limit int64) int64 {
+	return min(limit, math.MaxInt64-1) + 1
 }
 
 func relativeFilePath(filePath string) bool {
