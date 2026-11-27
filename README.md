@@ -102,8 +102,9 @@ Context is added with `%w`. Transport errors have the token replaced with
 
 ## Differences from a plain HTTP client
 
-Three behaviours differ from `net/http` used directly. They are intended, and a
-migration that moves a gateway onto this client can rely on them.
+These behaviours differ from `net/http` used directly, and from the hand written
+client of herrscher-telegram-gateway that this library replaces. They are
+intended, and a migration that moves a gateway onto this client can rely on them.
 
 1. **Redirects are refused.** The default client does not follow a 3xx answer,
    because the token travels in the URL path and a redirect would resend it to
@@ -114,6 +115,14 @@ migration that moves a gateway onto this client can rely on them.
 3. **The limit is checked before the path.** `Download` tests the limit first and
    the path second, so a call with both wrong returns `ErrBadLimit`. Neither
    check sends a request.
+4. **A file path holding `%` is refused.** `Download` returns `ErrBadFilePath`
+   before any request, so an encoded `..` cannot reach the server.
+5. **A failed write to the destination is `ErrWrite`, not `ErrTransport`.** A
+   full disk or a closed pipe is a local failure, and retrying on `ErrTransport`
+   would not fix it.
+6. **A file over the limit leaves at most `limit` bytes in the destination**,
+   and a limit of `math.MaxInt64` copies the whole file instead of returning an
+   empty success.
 
 ## Out of scope
 
