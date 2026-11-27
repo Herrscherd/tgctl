@@ -6,6 +6,7 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -244,6 +245,37 @@ func TestUnreadableRepliesMatchErrBadResponse(t *testing.T) {
 
 			if !errors.Is(err, ErrBadResponse) {
 				t.Fatalf("err = %v, want ErrBadResponse", err)
+			}
+		})
+	}
+}
+
+func TestNonJSONRepliesNameTheHTTPStatus(t *testing.T) {
+	cases := []struct {
+		name   string
+		status int
+		reply  string
+	}{
+		{"bad gateway page", http.StatusBadGateway, `<html><body>502 Bad Gateway</body></html>`},
+		{"server error page", http.StatusInternalServerError, `<html>boom</html>`},
+		{"redirect without a body", http.StatusMovedPermanently, ``},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			bot := newFakeBot(t, func(string, string) (int, string) { return tc.status, tc.reply })
+
+			_, err := bot.client().GetMe(t.Context())
+
+			if !errors.Is(err, ErrBadResponse) {
+				t.Fatalf("err = %v, want ErrBadResponse", err)
+			}
+			if want := "http " + strconv.Itoa(tc.status); !strings.Contains(err.Error(), want) {
+				t.Errorf("err = %q, want it to carry %q", err, want)
+			}
+			for _, secret := range []string{testToken, bot.server.URL} {
+				if strings.Contains(err.Error(), secret) {
+					t.Errorf("err = %q leaks %q", err, secret)
+				}
 			}
 		})
 	}

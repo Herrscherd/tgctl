@@ -45,13 +45,13 @@ func (t *transport) call(ctx context.Context, method string, params, result any)
 		return fmt.Errorf("telegram %s: %w", method, ErrRequest)
 	}
 	req.Header.Set("Content-Type", "application/json")
-	data, err := t.fetch(req)
+	answer, err := t.fetch(req)
 	if err != nil {
 		return fmt.Errorf("telegram %s: %w", method, err)
 	}
 	var envelope apiResponse
-	if err := json.Unmarshal(data, &envelope); err != nil {
-		return fmt.Errorf("telegram %s: %w", method, ErrBadResponse)
+	if err := json.Unmarshal(answer.body, &envelope); err != nil {
+		return badReply(method, answer.status)
 	}
 	if !envelope.OK {
 		return envelope.failure(method)
@@ -60,22 +60,31 @@ func (t *transport) call(ctx context.Context, method string, params, result any)
 		return nil
 	}
 	if err := json.Unmarshal(envelope.Result, result); err != nil {
-		return fmt.Errorf("telegram %s: %w", method, ErrBadResponse)
+		return badReply(method, answer.status)
 	}
 	return nil
 }
 
-func (t *transport) fetch(req *http.Request) ([]byte, error) {
+func badReply(method string, status int) error {
+	return fmt.Errorf("telegram %s: %w: http %d", method, ErrBadResponse, status)
+}
+
+type rawReply struct {
+	body   []byte
+	status int
+}
+
+func (t *transport) fetch(req *http.Request) (rawReply, error) {
 	resp, err := t.client.Do(req)
 	if err != nil {
-		return nil, t.transportFailure(err)
+		return rawReply{}, t.transportFailure(err)
 	}
 	data, err := io.ReadAll(io.LimitReader(resp.Body, responseMaxBytes))
 	err = errors.Join(err, resp.Body.Close())
 	if err != nil {
-		return nil, t.transportFailure(err)
+		return rawReply{}, t.transportFailure(err)
 	}
-	return data, nil
+	return rawReply{body: data, status: resp.StatusCode}, nil
 }
 
 func (t *transport) transportFailure(err error) error {

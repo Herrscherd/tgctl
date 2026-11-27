@@ -33,14 +33,18 @@ var ErrConflict = errors.New("telegram conflict: another poller or a webhook hol
 var ErrNotModified = errors.New("telegram message is not modified")
 
 // ErrBadFilePath is returned by [Client.Download] for a path that is empty, is
-// absolute, holds a query or fragment marker, a backslash, an empty segment, or
-// a dot segment, before any request is sent.
+// absolute, holds a query or fragment marker, a backslash, a percent sign, an
+// empty segment, or a dot segment, before any request is sent.
 var ErrBadFilePath = errors.New("telegram gave a file path that is not a relative path")
 
 // ErrFileTooLarge is returned by [Client.Download] when the file holds more
 // bytes than the limit. The bytes up to the limit have already been written to
 // the destination.
 var ErrFileTooLarge = errors.New("file is bigger than the cap")
+
+// ErrWrite is returned by [Client.Download] when the destination refuses bytes.
+// The error of the destination is wrapped, so it matches as well.
+var ErrWrite = errors.New("telegram file could not be written to the destination")
 
 // ErrFileStatus is returned by [Client.Download] when the file server answers
 // with a status other than 200.

@@ -87,17 +87,33 @@ Context is added with `%w`. Transport errors have the token replaced with
 | `*APIError` | Telegram refused the call. It carries `Method`, `Code`, `Description` and `RetryAfter` |
 | `ErrConflict` | an `APIError` with status 409: another caller polls the bot, or a webhook is set |
 | `ErrNotModified` | an `APIError` for an edit that leaves the message unchanged |
-| `ErrTransport` | Telegram cannot be reached or the connection breaks; a context that ends during the call also matches `context.Canceled` when it was cancelled, and `context.DeadlineExceeded` when it passed its deadline |
-| `ErrBadResponse` | the reply is not the expected JSON, is longer than 8 MiB, or is a redirect the default client refused to follow |
+| `ErrTransport` | Telegram cannot be reached, the connection breaks, or a file body breaks while `Download` reads it; a context that ends during the call also matches `context.Canceled` when it was cancelled, and `context.DeadlineExceeded` when it passed its deadline |
+| `ErrWrite` | the `dst` of `Download` refuses bytes; the writer's own error is wrapped, so it matches too, and it never matches `ErrTransport` |
+| `ErrBadResponse` | the reply is not the expected JSON, is longer than 8 MiB, or is a redirect the default client refused to follow; the text names the HTTP status, as `http 502`, and never the URL or the token |
 | `ErrRequest` | the request cannot be built from the configuration |
 | `ErrBadTimeout` | `GetUpdates` is given a timeout that is negative or over 50 s |
 | `ErrBadLimit` | `Download` is given a limit that is not positive |
-| `ErrBadFilePath` | `Download` refuses a path that is empty, absolute, not clean, or holds `?`, `#` or `\` |
-| `ErrFileTooLarge` | `Download` reads more than `limit` bytes |
+| `ErrBadFilePath` | `Download` refuses a path that is empty, absolute, not clean, or holds `?`, `#`, `\` or `%` |
+| `ErrFileTooLarge` | the file holds more than `limit` bytes; the first `limit` bytes are written to `dst`, and no byte beyond them is |
 | `ErrFileStatus` | the file server answers with a status other than 200, a redirect included |
 
 `RetryAfter(err)` returns the delay a flood refusal (429) asks for, and whether
 `err` holds one.
+
+## Differences from a plain HTTP client
+
+Three behaviours differ from `net/http` used directly. They are intended, and a
+migration that moves a gateway onto this client can rely on them.
+
+1. **Redirects are refused.** The default client does not follow a 3xx answer,
+   because the token travels in the URL path and a redirect would resend it to
+   another host. The 3xx is the reply: `ErrBadResponse` for a method call,
+   `ErrFileStatus` for a download.
+2. **A limit of zero or less is refused before any request.** `Download` returns
+   `ErrBadLimit` without contacting Telegram.
+3. **The limit is checked before the path.** `Download` tests the limit first and
+   the path second, so a call with both wrong returns `ErrBadLimit`. Neither
+   check sends a request.
 
 ## Out of scope
 

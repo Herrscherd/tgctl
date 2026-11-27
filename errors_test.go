@@ -16,6 +16,7 @@ func TestSentinelTextsMatchTheGateway(t *testing.T) {
 		{"ErrBadFilePath", ErrBadFilePath, "telegram gave a file path that is not a relative path"},
 		{"ErrFileTooLarge", ErrFileTooLarge, "file is bigger than the cap"},
 		{"ErrFileStatus", ErrFileStatus, "telegram refused the file download"},
+		{"ErrWrite", ErrWrite, "telegram file could not be written to the destination"},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {

@@ -13,10 +13,11 @@ func TestDownloadCopiesTheFileWithinTheLimit(t *testing.T) {
 		name    string
 		limit   int64
 		wantErr error
+		wantDst string
 	}{
-		{"exactly at the limit", int64(len(content)), nil},
-		{"one byte over the limit", int64(len(content)) - 1, ErrFileTooLarge},
-		{"the largest limit a file can reach", math.MaxInt64, nil},
+		{"exactly at the limit", int64(len(content)), nil, content},
+		{"one byte over the limit", int64(len(content)) - 1, ErrFileTooLarge, content[:len(content)-1]},
+		{"the largest limit a file can reach", math.MaxInt64, nil, content},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -29,11 +30,34 @@ func TestDownloadCopiesTheFileWithinTheLimit(t *testing.T) {
 			if !errors.Is(err, tc.wantErr) {
 				t.Fatalf("err = %v, want %v", err, tc.wantErr)
 			}
-			if tc.wantErr == nil && dst.String() != content {
-				t.Errorf("dst = %q, want %q", dst.String(), content)
+			if dst.String() != tc.wantDst {
+				t.Errorf("dst = %q, want %q", dst.String(), tc.wantDst)
 			}
 		})
 	}
+}
+
+func TestDownloadWriteFailureMatchesErrWriteNotTransport(t *testing.T) {
+	bot := newFakeBot(t, okReply(`true`))
+	bot.files["documents/a.txt"] = "0123456789"
+	diskFull := errors.New("disk full")
+
+	err := bot.client().Download(t.Context(), "documents/a.txt", 100, failingWriter{err: diskFull})
+
+	if !errors.Is(err, ErrWrite) || !errors.Is(err, diskFull) {
+		t.Fatalf("err = %v, want ErrWrite wrapping the writer error", err)
+	}
+	if errors.Is(err, ErrTransport) {
+		t.Errorf("a write failure must not match ErrTransport: %v", err)
+	}
+}
+
+type failingWriter struct {
+	err error
+}
+
+func (w failingWriter) Write([]byte) (int, error) {
+	return 0, w.err
 }
 
 func TestDownloadRefusesANonPositiveLimitBeforeAnyRequest(t *testing.T) {
@@ -53,7 +77,7 @@ func TestDownloadRefusesANonPositiveLimitBeforeAnyRequest(t *testing.T) {
 func TestDownloadRefusesPathsOutsideTheFileTree(t *testing.T) {
 	bot := newFakeBot(t, okReply(`true`))
 
-	for _, path := range []string{"", "/etc/passwd", "documents/../../x", "a//b", "a?b", "a#b", `a\b`, "./a"} {
+	for _, path := range []string{"", "/etc/passwd", "documents/../../x", "a//b", "a?b", "a#b", `a\b`, "./a", "%2e%2e/x", "documents/%2E%2E/x", "a%2Fb", "a%20b"} {
 		if err := bot.client().Download(t.Context(), path, 1, &bytes.Buffer{}); !errors.Is(err, ErrBadFilePath) {
 			t.Errorf("Download(%q) = %v, want ErrBadFilePath", path, err)
 		}
